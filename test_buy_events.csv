@@ -1,0 +1,5 @@
+wallet,token_mint,ticker,block_time,combined_score
+test_wallet_1,CTPoyCwkjMvoJwU4xvZZqoD8tiYk6yDchySiN5gGpump,fone,1788288532,80
+test_wallet_2,CTPoyCwkjMvoJwU4xvZZqoD8tiYk6yDchySiN5gGpump,fone,1788374932,60
+test_wallet_3,CTPoyCwkjMvoJwU4xvZZqoD8tiYk6yDchySiN5gGpump,fone,1788461332,40
+test_wallet_4,CTPoyCwkjMvoJwU4xvZZqoD8tiYk6yDchySiN5gGpump,fone,1788547732,20
