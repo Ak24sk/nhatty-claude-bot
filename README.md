@@ -105,6 +105,7 @@ The natural next integrations, in rough order of value:
    webhook, or `streamlit-autorefresh`) plus a notification channel
    (Discord/Telegram webhook) for when a token flips to `ALERT`.
 4. Swap the public Solana RPC calls for a paid provider's enhanced APIs
+5. Fix build_real_dataset.py's wallet sampling: pull real recent buyer wallets from the pool's own recent swap transactions instead of from "top holders" - this is the single biggest lever for getting a real, statistically usable sample size into the Score Validation tab.
    (e.g. Helius's parsed transaction history endpoint) to avoid manually
    walking `getSignaturesForAddress` + `getTransaction` one at a time.
 
