@@ -58,12 +58,8 @@ def status_badge(status: str) -> str:
 # --------------------------------------------------------------------------
 
 st.sidebar.title("🛰️ Signal Bot v2.2")
-mode = st.sidebar.radio(
-    "Data source",
-    ["Demo Mode", "CSV Upload", "Live (Solana RPC)"],
-    help="Demo Mode needs no setup. CSV Upload lets you bring your own "
-         "wallet/token/buy-event exports. Live Mode calls the real Solana RPC.",
-)
+mode = "Live (Solana RPC)"
+st.sidebar.caption("Data source: Live (Solana RPC) only.")
 
 st.sidebar.markdown("---")
 st.sidebar.caption(
