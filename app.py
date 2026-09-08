@@ -22,6 +22,7 @@ import pandas as pd
 import streamlit as st
 
 from modules import demo_data as dd
+from modules import gecko_price as gpr
 from modules import wallet_intel as wi
 from modules import buy_sell as bs
 from modules import convergence as conv
@@ -481,6 +482,8 @@ with tabs[6]:
 
                     with st.spinner("Checking RugCheck for LP-lock + risk signals..."):
                         rc_data = rc.get_lp_lock_and_honeypot(mint_addr)
+                        with st.spinner("Fetching market data..."):
+                            market_data = gpr.get_token_market_data(mint_addr)
 
                     safety = sg.run_safety_gate(
                         mint_account_info=mint_info,
@@ -493,6 +496,33 @@ with tabs[6]:
                         icon = "✅" if result["passed"] else "❌"
                         st.write(f"{icon} **{name.replace('_', ' ').title()}** — {result['reason']}")
 
+                    if market_data.get("name") or market_data.get("symbol"):
+                        st.markdown(f"### {market_data.get('name') or 'Unknown'} ({market_data.get('symbol') or '?'})")
+                    if market_data.get("price_usd") is not None:
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Price (USD)", f"${float(market_data['price_usd']):.8f}")
+                        if market_data.get("market_cap_usd"):
+                            c2.metric("Market Cap", f"${float(market_data['market_cap_usd']):,.0f}")
+                        if market_data.get("liquidity_usd"):
+                            c3.metric("Liquidity", f"${float(market_data['liquidity_usd']):,.0f}")
+                    if market_data.get("volume_24h_usd") is not None:
+                        st.caption(f"24h volume: ${float(market_data['volume_24h_usd']):,.0f}")
+                    if market_data.get("dex"):
+                        st.caption(f"Traded on: {market_data['dex'].title()} (best liquidity pool)")
+                    if market_data.get("pool_created_at"):
+                        st.caption(f"Pool created: {market_data['pool_created_at']} (pool age, not necessarily token launch time)")
+                    socials = []
+                    if market_data.get("twitter"):
+                        socials.append(f"[Twitter](https://twitter.com/{market_data['twitter']})")
+                    if market_data.get("telegram"):
+                        socials.append(f"[Telegram](https://t.me/{market_data['telegram']})")
+                    if market_data.get("discord"):
+                        socials.append(f"[Discord]({market_data['discord']})")
+                    for site in (market_data.get("websites") or [])[:2]:
+                        socials.append(f"[Website]({site})")
+                    if socials:
+                        st.markdown(" · ".join(socials))
+                    st.caption("Market data via GeckoTerminal's free public API. Launchpad and exact token creation time are not directly available; DEX and pool-creation time shown above are the closest proxies.")
                     if rc_data.get("error"):
                         st.caption(f"⚠️ RugCheck lookup failed ({rc_data['error']}) — LP lock and honeypot proxy show as unknown/blocked above rather than a guess.")
                     else:

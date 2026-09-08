@@ -104,3 +104,60 @@ def compute_forward_return(mint_address, entry_unix_time, horizon_seconds, pool_
     if exit_price is None:
         return None
     return round(((exit_price - entry_price) / entry_price) * 100, 2)
+
+
+def get_token_market_data(mint_address, network="solana"):
+    """
+    Best-effort token market snapshot: name/symbol/image, price, 24h volume,
+    liquidity, market cap, FDV, best-pool DEX, pool creation time, and
+    socials (from GeckoTerminal's public API). Never raises - returns None
+    for anything unavailable.
+    """
+    result = {
+        "symbol": None, "name": None, "image_url": None,
+        "price_usd": None, "volume_24h_usd": None, "liquidity_usd": None,
+        "market_cap_usd": None, "fdv_usd": None, "pool_created_at": None,
+        "dex": None, "websites": [], "twitter": None,
+        "telegram": None, "discord": None,
+    }
+
+    url = f"{GECKO_BASE_URL}/networks/{network}/tokens/{mint_address}/pools"
+    try:
+        data = _throttled_get(url)
+    except GeckoPriceError:
+        data = {}
+    pools = data.get("data") or []
+    if pools:
+        def _liquidity(pool):
+            try:
+                return float(pool.get("attributes", {}).get("reserve_in_usd") or 0)
+            except (TypeError, ValueError):
+                return 0.0
+        best = max(pools, key=_liquidity)
+        attrs = best.get("attributes", {})
+        result["price_usd"] = attrs.get("base_token_price_usd")
+        result["liquidity_usd"] = attrs.get("reserve_in_usd")
+        result["market_cap_usd"] = attrs.get("market_cap_usd")
+        result["fdv_usd"] = attrs.get("fdv_usd")
+        result["pool_created_at"] = attrs.get("pool_created_at")
+        volume = attrs.get("volume_usd") or {}
+        result["volume_24h_usd"] = volume.get("h24") if isinstance(volume, dict) else None
+        dex_data = best.get("relationships", {}).get("dex", {}).get("data", {})
+        result["dex"] = dex_data.get("id")
+
+    info_url = f"{GECKO_BASE_URL}/networks/{network}/tokens/{mint_address}/info"
+    try:
+        info_data = _throttled_get(info_url)
+    except GeckoPriceError:
+        info_data = {}
+    info_attrs = (info_data.get("data") or {}).get("attributes", {})
+    if info_attrs:
+        result["name"] = info_attrs.get("name")
+        result["symbol"] = info_attrs.get("symbol")
+        result["image_url"] = info_attrs.get("image_url")
+        result["websites"] = info_attrs.get("websites") or []
+        result["twitter"] = info_attrs.get("twitter_handle")
+        result["telegram"] = info_attrs.get("telegram_handle")
+        result["discord"] = info_attrs.get("discord_url")
+
+    return result
