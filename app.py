@@ -314,8 +314,37 @@ with tabs[1]:
     st.caption("Transaction history + likely buy/sell detection for a single wallet.")
 
     if mode == "Live (Solana RPC)":
-        addr = st.text_input("Wallet address")
-        mint = st.text_input("Token mint to check buys/sells against")
+        SAVED_WALLETS_PATH_WS = "data/smart_money_wallets.txt"
+        saved_wallet_options = ["Manual entry"]
+        saved_wallet_map = {}
+        try:
+            with open(SAVED_WALLETS_PATH_WS, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if "," in line:
+                        label, address = line.split(",", 1)
+                        label, address = label.strip(), address.strip()
+                    else:
+                        label, address = line[:6], line
+                    display = f"{label} ({address[:4]}...{address[-4:]})"
+                    saved_wallet_options.append(display)
+                    saved_wallet_map[display] = address
+        except FileNotFoundError:
+            pass
+
+        chosen = st.selectbox("Pick a saved wallet (from Smart Money list) or enter manually", saved_wallet_options)
+        if chosen != "Manual entry":
+            addr = saved_wallet_map[chosen]
+            st.caption(f"Using: `{addr}`")
+        else:
+            addr = st.text_input("Wallet address")
+
+        any_token_mode = st.checkbox(
+            "Check ANY token bought (ignore mint field below - buy-detection only, no sell tracking in this mode)"
+        )
+        mint = st.text_input("Token mint to check buys/sells against", disabled=any_token_mode)
         limit = st.slider("How many recent signatures to pull", 5, 100, 25)
 
         if st.button("Scan wallet", type="primary") and addr:
@@ -332,29 +361,61 @@ with tabs[1]:
 
                 if sigs:
                     st.write(f"Found {len(sigs)} recent signatures. Classifying trades...")
-                    trades = []
-                    progress = st.progress(0.0)
-                    for i, s in enumerate(sigs):
-                        try:
-                            tx = client.get_transaction(s["signature"])
-                            if mint:
-                                event = bs.classify_transaction(tx, addr, mint)
-                                if event:
-                                    trades.append(event)
-                        except SolanaRpcError:
-                            pass
-                        progress.progress((i + 1) / len(sigs))
-                        time.sleep(0.05)  # be gentle with public RPC rate limits
 
-                    if mint and trades:
-                        trades_df = pd.DataFrame([t.__dict__ for t in trades])
-                        st.dataframe(trades_df, use_container_width=True)
-                        st.json(bs.summarize_trades(trades))
-                    elif mint:
-                        st.info("No classifiable buy/sell events found for that mint in this window.")
+                    if any_token_mode:
+                        all_buys = []
+                        progress = st.progress(0.0)
+                        for i, s in enumerate(sigs):
+                            try:
+                                tx = client.get_transaction(s["signature"])
+                                buys = bs.detect_buys_any_token(tx, addr)
+                                for b in buys:
+                                    b["signature"] = s["signature"]
+                                    b["block_time"] = tx.get("blockTime")
+                                    all_buys.append(b)
+                            except SolanaRpcError:
+                                pass
+                            progress.progress((i + 1) / len(sigs))
+                            time.sleep(0.05)
+                        if all_buys:
+                            st.metric("Distinct tokens bought", len(set(b["token_mint"] for b in all_buys)))
+                            st.dataframe(pd.DataFrame(all_buys), use_container_width=True)
+                        else:
+                            st.info("No buys of any token detected in this window.")
                     else:
-                        st.info("Enter a token mint above to classify buys/sells; showing raw signatures instead.")
-                        st.dataframe(pd.DataFrame(sigs), use_container_width=True)
+                        trades = []
+                        progress = st.progress(0.0)
+                        for i, s in enumerate(sigs):
+                            try:
+                                tx = client.get_transaction(s["signature"])
+                                if mint:
+                                    event = bs.classify_transaction(tx, addr, mint)
+                                    if event:
+                                        trades.append(event)
+                            except SolanaRpcError:
+                                pass
+                            progress.progress((i + 1) / len(sigs))
+                            time.sleep(0.05)  # be gentle with public RPC rate limits
+
+                        if mint and trades:
+                            summary = bs.summarize_trades(trades)
+                            net_token_flow = round(sum(
+                                t.token_delta if t.action == "BUY" else -t.token_delta if t.action == "SELL" else 0
+                                for t in trades
+                            ), 6)
+                            c1, c2, c3, c4 = st.columns(4)
+                            c1.metric("Buys", summary["buy_count"])
+                            c2.metric("Sells", summary["sell_count"])
+                            c3.metric("SOL spent (buys)", summary["total_sol_spent_on_buys"])
+                            c4.metric("Net token flow", net_token_flow)
+                            st.markdown("---")
+                            trades_df = pd.DataFrame([t.__dict__ for t in trades])
+                            st.dataframe(trades_df, use_container_width=True)
+                        elif mint:
+                            st.info("No classifiable buy/sell events found for that mint in this window.")
+                        else:
+                            st.info("Enter a token mint above to classify buys/sells; showing raw signatures instead.")
+                            st.dataframe(pd.DataFrame(sigs), use_container_width=True)
     else:
         if wallets_df.empty:
             st.info("No wallet data loaded.")
@@ -511,6 +572,53 @@ with tabs[5]:
 # Tab 7: Token Inspector
 # --------------------------------------------------------------------------
 
+@st.cache_data(ttl=180, show_spinner=False)
+def _fetch_token_inspection_data(mint_addr, rpc_url_cached):
+    client = SolanaClient(rpc_url_cached)
+    mint_info = supply_info = None
+    largest = []
+    try:
+        mint_info = client.get_account_info(mint_addr)
+        supply_info = client.get_token_supply(mint_addr)
+        largest = client.get_token_largest_accounts(mint_addr)
+    except SolanaRpcError as e:
+        return {"error": str(e)}
+
+    if not mint_info:
+        return {"error": "no mint info"}
+
+    rc_data = rc.get_lp_lock_and_honeypot(mint_addr)
+    market_data = gpr.get_token_market_data(mint_addr)
+
+    # Resolve owners of the top 10 largest token accounts (extra RPC calls,
+    # kept small since this is a one-off single-token inspection).
+    top_holder_owners = []
+    for acc in (largest or [])[:10]:
+        acc_addr = acc.get("address")
+        if not acc_addr:
+            continue
+        try:
+            info = client.get_account_info(acc_addr)
+            owner = ((info or {}).get("data", {}).get("parsed", {}) or {}).get("info", {}).get("owner")
+        except SolanaRpcError:
+            owner = None
+        top_holder_owners.append({
+            "token_account": acc_addr,
+            "owner": owner,
+            "uiAmount": float(acc.get("uiAmount") or 0),
+        })
+
+    return {
+        "error": None,
+        "mint_info": mint_info,
+        "supply_info": supply_info,
+        "largest": largest,
+        "rc_data": rc_data,
+        "market_data": market_data,
+        "top_holder_owners": top_holder_owners,
+    }
+
+
 with tabs[6]:
     st.subheader("Live token inspection")
 
@@ -520,26 +628,23 @@ with tabs[6]:
             if not rpc_url:
                 st.error("Set a Solana RPC URL in the sidebar first.")
             else:
-                client = SolanaClient(rpc_url)
-                with st.spinner("Reading mint + holder data..."):
-                    try:
-                        mint_info = client.get_account_info(mint_addr)
-                        supply_info = client.get_token_supply(mint_addr)
-                        largest = client.get_token_largest_accounts(mint_addr)
-                    except SolanaRpcError as e:
-                        st.error(f"RPC error: {e}")
-                        mint_info, supply_info, largest = None, None, []
+                with st.spinner("Fetching (cached 3 min per token)..."):
+                    fetched = _fetch_token_inspection_data(mint_addr, rpc_url)
 
-                if mint_info:
+                if fetched.get("error"):
+                    st.error(f"RPC error: {fetched['error']}")
+                else:
+                    mint_info = fetched["mint_info"]
+                    supply_info = fetched["supply_info"]
+                    largest = fetched["largest"]
+                    rc_data = fetched["rc_data"]
+                    market_data = fetched["market_data"]
+                    top_holder_owners = fetched["top_holder_owners"]
+
                     total_supply = float((supply_info or {}).get("uiAmount") or 0)
                     largest_amounts = [
                         {"uiAmount": float(a.get("uiAmount") or 0)} for a in largest
                     ]
-
-                    with st.spinner("Checking RugCheck for LP-lock + risk signals..."):
-                        rc_data = rc.get_lp_lock_and_honeypot(mint_addr)
-                        with st.spinner("Fetching market data..."):
-                            market_data = gpr.get_token_market_data(mint_addr)
 
                     safety = sg.run_safety_gate(
                         mint_account_info=mint_info,
@@ -548,9 +653,49 @@ with tabs[6]:
                         lp_locked=rc_data["lp_locked"],
                         simulated_sell_ok=rc_data["honeypot_proxy"],
                     )
+
+                    # Composite risk score: weighted, LP lock + honeypot heaviest.
+                    WEIGHTS = {
+                        "mint_authority": 15,
+                        "freeze_authority": 15,
+                        "holder_concentration": 20,
+                        "lp_locked": 30,
+                        "honeypot_proxy": 20,
+                    }
+                    score = sum(
+                        WEIGHTS.get(name, 0)
+                        for name, result in safety["checks"].items()
+                        if result["passed"]
+                    )
+                    score_color = "🟢" if score >= 80 else "🟡" if score >= 50 else "🔴"
+                    st.metric(f"{score_color} Composite Safety Score", f"{score}/100")
+                    st.caption("Weighted: LP lock (30) + honeypot (20) heaviest, then holder concentration (20), mint/freeze authority (15 each).")
+                    st.markdown("---")
+
                     for name, result in safety["checks"].items():
                         icon = "✅" if result["passed"] else "❌"
                         st.write(f"{icon} **{name.replace('_', ' ').title()}** — {result['reason']}")
+
+                    if top_holder_owners:
+                        SAVED_WALLETS_PATH_TI = "data/smart_money_wallets.txt"
+                        known_wallets = {}
+                        try:
+                            with open(SAVED_WALLETS_PATH_TI, "r", encoding="utf-8") as f:
+                                for line in f:
+                                    line = line.strip()
+                                    if not line:
+                                        continue
+                                    if "," in line:
+                                        label, address = line.split(",", 1)
+                                        known_wallets[address.strip()] = label.strip()
+                        except FileNotFoundError:
+                            pass
+
+                        with st.expander(f"Top {len(top_holder_owners)} holders (tap to view)"):
+                            for h in top_holder_owners:
+                                owner = h["owner"] or "unknown"
+                                flag = f" 🐋 **known: {known_wallets[owner]}**" if owner in known_wallets else ""
+                                st.write(f"- `{owner}` — {h['uiAmount']:,.0f} tokens{flag}")
 
                     if market_data.get("name") or market_data.get("symbol"):
                         st.markdown(f"### {market_data.get('name') or 'Unknown'} ({market_data.get('symbol') or '?'})")
@@ -563,6 +708,10 @@ with tabs[6]:
                             c3.metric("Liquidity", f"${float(market_data['liquidity_usd']):,.0f}")
                     if market_data.get("volume_24h_usd") is not None:
                         st.caption(f"24h volume: ${float(market_data['volume_24h_usd']):,.0f}")
+                        if market_data.get("liquidity_usd"):
+                            vol_liq_ratio = float(market_data["volume_24h_usd"]) / float(market_data["liquidity_usd"])
+                            ratio_flag = " ⚠️ high — thin liquidity relative to volume, price may be easy to move" if vol_liq_ratio > 10 else ""
+                            st.caption(f"Volume/Liquidity ratio: {vol_liq_ratio:.1f}x{ratio_flag}")
                     if market_data.get("dex"):
                         st.caption(f"Traded on: {market_data['dex'].title()} (best liquidity pool)")
                     if market_data.get("pool_created_at"):
@@ -702,6 +851,8 @@ with tabs[8]:
         window_minutes = st.slider("Convergence window (minutes)", min_value=5, max_value=180, value=30)
         min_wallets_sm = st.slider("Minimum wallets to flag a cluster", min_value=2, max_value=10, value=2)
 
+        BUY_EVENTS_LOG_PATH = "data/smart_money_buy_events.json"
+
         if st.button("Scan smart money wallets", type="primary"):
             raw_lines = [l.strip() for l in wallet_list_text.splitlines() if l.strip()]
             parsed_wallets = []
@@ -716,7 +867,7 @@ with tabs[8]:
                 st.warning("Paste at least one wallet address above.")
             else:
                 client = SolanaClient(rpc_url)
-                all_buy_events = []
+                new_buy_events = []
                 progress = st.progress(0.0, text="Scanning wallets...")
 
                 for i, (label, addr) in enumerate(parsed_wallets):
@@ -735,7 +886,8 @@ with tabs[8]:
                             continue
                         buys = bs.detect_buys_any_token(tx, addr)
                         for b in buys:
-                            all_buy_events.append({
+                            new_buy_events.append({
+                                "signature": sig,
                                 "wallet": f"{label} ({addr[:4]}...{addr[-4:]})",
                                 "token_mint": b["token_mint"],
                                 "block_time": tx.get("blockTime"),
@@ -744,26 +896,55 @@ with tabs[8]:
 
                 progress.progress(1.0, text="Done.")
 
-                if not all_buy_events:
-                    st.info("No buy activity of any token found across these wallets in the checked window.")
+                import json
+                import os
+                os.makedirs("data", exist_ok=True)
+                try:
+                    with open(BUY_EVENTS_LOG_PATH, "r", encoding="utf-8") as f:
+                        existing_events = json.load(f)
+                except (FileNotFoundError, json.JSONDecodeError):
+                    existing_events = []
+
+                seen_signatures = {e.get("signature") for e in existing_events}
+                combined_events = existing_events + [e for e in new_buy_events if e["signature"] not in seen_signatures]
+
+                with open(BUY_EVENTS_LOG_PATH, "w", encoding="utf-8") as f:
+                    json.dump(combined_events, f)
+
+                st.caption(
+                    f"This scan found {len(new_buy_events)} buy events. Combined with prior scans, "
+                    f"{len(combined_events)} total buy events are being checked for convergence "
+                    f"(accumulated history persists across scans)."
+                )
+
+                if not combined_events:
+                    st.info("No buy activity of any token found across these wallets yet.")
                 else:
-                    clusters = conv.detect_convergence(
-                        all_buy_events,
+                    all_clusters = conv.detect_convergence(
+                        combined_events,
                         window_seconds=window_minutes * 60,
-                        min_wallets=min_wallets_sm,
+                        min_wallets=2,
                     )
-                    if not clusters:
+                    real_clusters = [c for c in all_clusters if c["wallet_count"] >= min_wallets_sm]
+                    near_misses = [c for c in all_clusters if c["wallet_count"] < min_wallets_sm]
+
+                    if not real_clusters:
                         st.info(
-                            f"Found {len(all_buy_events)} buy events total, but no token was bought by "
-                            f"{min_wallets_sm}+ wallets within a {window_minutes}-minute window. "
-                            "Try lowering the minimum wallets, widening the window, or checking more signatures."
+                            f"No token was bought by {min_wallets_sm}+ wallets within a {window_minutes}-minute "
+                            "window yet. Try lowering the minimum wallets, widening the window, checking more "
+                            "signatures, or just scanning again later - accumulated history grows each scan."
                         )
                     else:
-                        st.success(f"Found {len(clusters)} convergence cluster(s)!")
-                        for c in clusters:
+                        st.success(f"Found {len(real_clusters)} convergence cluster(s)!")
+                        for c in real_clusters:
                             st.markdown(f"### Token: `{c['token_mint']}`")
                             st.write(f"**{c['wallet_count']} wallets** bought within the window:")
                             for w in c["wallets"]:
                                 st.write(f"- {w}")
                             st.caption(f"Window: {c['window_start']} to {c['window_end']} (unix time)")
                             st.markdown("---")
+
+                    if near_misses:
+                        with st.expander(f"{len(near_misses)} near-miss cluster(s) below your {min_wallets_sm}-wallet threshold"):
+                            for c in near_misses:
+                                st.write(f"**Token `{c['token_mint']}`** — {c['wallet_count']} wallet(s): {', '.join(c['wallets'])}")
