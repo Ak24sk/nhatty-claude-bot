@@ -678,11 +678,26 @@ with tabs[8]:
     if mode != "Live (Solana RPC)":
         st.info("Smart Money Convergence requires Live (Solana RPC) mode.")
     else:
+        SAVED_WALLETS_PATH = "data/smart_money_wallets.txt"
+        try:
+            with open(SAVED_WALLETS_PATH, "r", encoding="utf-8") as f:
+                saved_wallets_default = f.read()
+        except FileNotFoundError:
+            saved_wallets_default = ""
+
         wallet_list_text = st.text_area(
             "Wallet addresses (one per line, optional 'label,address' format)",
+            value=saved_wallets_default,
             height=150,
             placeholder="ansem,ADDRESS_HERE\nAnotherWalletAddressHere...",
         )
+
+        if st.button("💾 Save wallet list"):
+            import os
+            os.makedirs("data", exist_ok=True)
+            with open(SAVED_WALLETS_PATH, "w", encoding="utf-8") as f:
+                f.write(wallet_list_text)
+            st.success("Wallet list saved. It will auto-load next time you open this tab.")
         sig_count = st.slider("Recent signatures to check per wallet", min_value=5, max_value=50, value=15)
         window_minutes = st.slider("Convergence window (minutes)", min_value=5, max_value=180, value=30)
         min_wallets_sm = st.slider("Minimum wallets to flag a cluster", min_value=2, max_value=10, value=2)
