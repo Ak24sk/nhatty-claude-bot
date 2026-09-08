@@ -161,6 +161,7 @@ tabs = st.tabs([
     "🛡️ Safety Gate",
     "🔍 Token Inspector",
     "📈 Score Validation",
+    "🐋 Smart Money",
 ])
 
 
@@ -658,3 +659,96 @@ with tabs[7]:
                     chartable = results_df.dropna(subset=["forward_return_pct"])
                     if len(chartable) >= 2:
                         st.scatter_chart(chartable, x="combined_score", y="forward_return_pct")
+
+
+# --------------------------------------------------------------------------
+# Tab 9: Smart Money Convergence
+# --------------------------------------------------------------------------
+
+with tabs[8]:
+    st.subheader("Smart money convergence")
+    st.caption(
+        "Paste a list of wallet addresses (KOLs, smart money, early catchers - "
+        "one per line, or 'label,address'). We scan each wallet's recent "
+        "activity for buys of ANY token, then flag tokens that multiple "
+        "wallets bought within the same short window - a much stronger "
+        "signal than any single wallet's activity."
+    )
+
+    if mode != "Live (Solana RPC)":
+        st.info("Smart Money Convergence requires Live (Solana RPC) mode.")
+    else:
+        wallet_list_text = st.text_area(
+            "Wallet addresses (one per line, optional 'label,address' format)",
+            height=150,
+            placeholder="ansem,ADDRESS_HERE\nAnotherWalletAddressHere...",
+        )
+        sig_count = st.slider("Recent signatures to check per wallet", min_value=5, max_value=50, value=15)
+        window_minutes = st.slider("Convergence window (minutes)", min_value=5, max_value=180, value=30)
+        min_wallets_sm = st.slider("Minimum wallets to flag a cluster", min_value=2, max_value=10, value=2)
+
+        if st.button("Scan smart money wallets", type="primary"):
+            raw_lines = [l.strip() for l in wallet_list_text.splitlines() if l.strip()]
+            parsed_wallets = []
+            for line in raw_lines:
+                if "," in line:
+                    label, addr = line.split(",", 1)
+                    parsed_wallets.append((label.strip(), addr.strip()))
+                else:
+                    parsed_wallets.append((line.strip()[:6], line.strip()))
+
+            if not parsed_wallets:
+                st.warning("Paste at least one wallet address above.")
+            else:
+                client = SolanaClient(rpc_url)
+                all_buy_events = []
+                progress = st.progress(0.0, text="Scanning wallets...")
+
+                for i, (label, addr) in enumerate(parsed_wallets):
+                    progress.progress((i) / len(parsed_wallets), text=f"Scanning {label} ({i+1}/{len(parsed_wallets)})...")
+                    try:
+                        sigs = client.get_signatures_for_address(addr, limit=sig_count)
+                    except SolanaRpcError:
+                        continue
+                    for sig_info in sigs or []:
+                        sig = sig_info.get("signature") if isinstance(sig_info, dict) else sig_info
+                        if not sig:
+                            continue
+                        try:
+                            tx = client.get_transaction(sig)
+                        except SolanaRpcError:
+                            continue
+                        buys = bs.detect_buys_any_token(tx, addr)
+                        for b in buys:
+                            all_buy_events.append({
+                                "wallet": f"{label} ({addr[:4]}...{addr[-4:]})",
+                                "token_mint": b["token_mint"],
+                                "block_time": tx.get("blockTime"),
+                                "combined_score": 50,
+                            })
+
+                progress.progress(1.0, text="Done.")
+
+                if not all_buy_events:
+                    st.info("No buy activity of any token found across these wallets in the checked window.")
+                else:
+                    clusters = conv.detect_convergence(
+                        all_buy_events,
+                        window_seconds=window_minutes * 60,
+                        min_wallets=min_wallets_sm,
+                    )
+                    if not clusters:
+                        st.info(
+                            f"Found {len(all_buy_events)} buy events total, but no token was bought by "
+                            f"{min_wallets_sm}+ wallets within a {window_minutes}-minute window. "
+                            "Try lowering the minimum wallets, widening the window, or checking more signatures."
+                        )
+                    else:
+                        st.success(f"Found {len(clusters)} convergence cluster(s)!")
+                        for c in clusters:
+                            st.markdown(f"### Token: `{c['token_mint']}`")
+                            st.write(f"**{c['wallet_count']} wallets** bought within the window:")
+                            for w in c["wallets"]:
+                                st.write(f"- {w}")
+                            st.caption(f"Window: {c['window_start']} to {c['window_end']} (unix time)")
+                            st.markdown("---")
