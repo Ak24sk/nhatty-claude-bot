@@ -573,33 +573,33 @@ with tabs[7]:
         st.caption(f"Roughly {max_trades*2}-{max_trades*3} API calls, rate-limited - may take a minute.")
 
 
-if st.button("Run validation", type="primary"):
-            events = buys_df.copy()
-            if "combined_score" not in events.columns:
-                events["combined_score"] = 50
+    if st.button("Run validation", type="primary"):
+                events = buys_df.copy()
+                if "combined_score" not in events.columns:
+                    events["combined_score"] = 50
 
-            progress = st.progress(0.0, text="Fetching real prices...")
+                progress = st.progress(0.0, text="Fetching real prices...")
 
-            def _update_progress(done, total):
-                progress.progress(done / total, text=f"Checked {done}/{total} trades...")
+                def _update_progress(done, total):
+                    progress.progress(done / total, text=f"Checked {done}/{total} trades...")
 
-            evaluated = bt.evaluate_trades(
-                events.to_dict("records"), horizon_seconds=horizon_seconds,
-                max_trades=max_trades, progress_callback=_update_progress,
-            )
-            summary = bt.summarize_validation(evaluated)
+                evaluated = bt.evaluate_trades(
+                    events.to_dict("records"), horizon_seconds=horizon_seconds,
+                    max_trades=max_trades, progress_callback=_update_progress,
+                )
+                summary = bt.summarize_validation(evaluated)
 
-            st.markdown("---")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Trades with price data", f"{summary['trades_with_price_data']}/{summary['total_trades']}")
-            c2.metric("Correlation", summary["correlation"] if summary["correlation"] is not None else "n/a")
-            c3.metric("Avg forward return", f"{summary['avg_forward_return_pct']}%" if summary["avg_forward_return_pct"] is not None else "n/a")
-            st.write(summary["interpretation"])
+                st.markdown("---")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Trades with price data", f"{summary['trades_with_price_data']}/{summary['total_trades']}")
+                c2.metric("Correlation", summary["correlation"] if summary["correlation"] is not None else "n/a")
+                c3.metric("Avg forward return", f"{summary['avg_forward_return_pct']}%" if summary["avg_forward_return_pct"] is not None else "n/a")
+                st.write(summary["interpretation"])
 
-            results_df = pd.DataFrame(evaluated)
-            if not results_df.empty:
-                cols = [c for c in ["wallet", "ticker", "token_mint", "combined_score", "forward_return_pct"] if c in results_df.columns]
-                st.dataframe(results_df[cols], use_container_width=True)
-                chartable = results_df.dropna(subset=["forward_return_pct"])
-                if len(chartable) >= 2:
-                    st.scatter_chart(chartable, x="combined_score", y="forward_return_pct")
+                results_df = pd.DataFrame(evaluated)
+                if not results_df.empty:
+                    cols = [c for c in ["wallet", "ticker", "token_mint", "combined_score", "forward_return_pct"] if c in results_df.columns]
+                    st.dataframe(results_df[cols], use_container_width=True)
+                    chartable = results_df.dropna(subset=["forward_return_pct"])
+                    if len(chartable) >= 2:
+                        st.scatter_chart(chartable, x="combined_score", y="forward_return_pct")
