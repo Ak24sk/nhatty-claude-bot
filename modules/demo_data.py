@@ -84,3 +84,47 @@ def generate_demo_buy_events(wallets_df: pd.DataFrame, tokens_df: pd.DataFrame,
 
 def load_csv(path_or_buffer) -> pd.DataFrame:
     return pd.read_csv(path_or_buffer)
+
+
+def load_watchlist_csv(path_or_buffer):
+    """Parse + validate a watchlist CSV. Returns (valid_df, errors)."""
+    import re
+    df = pd.read_csv(path_or_buffer)
+    df.columns = [c.strip().lower() for c in df.columns]
+
+    required = {"wallet", "token_mint", "ticker"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"Missing required column(s): {', '.join(sorted(missing))}")
+
+    mint_re = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+    ticker_re = re.compile(r"^[A-Za-z0-9$]{1,15}$")
+
+    errors = []
+    valid_idx = []
+    seen = set()
+
+    for i, row in df.iterrows():
+        wallet = str(row["wallet"]).strip()
+        mint = str(row["token_mint"]).strip()
+        ticker = str(row["ticker"]).strip()
+        key = (wallet, mint)
+        reason = None
+
+        if not wallet or wallet.lower() == "nan" or not mint_re.match(wallet):
+            reason = "invalid wallet"
+        elif not mint or mint.lower() == "nan" or not mint_re.match(mint):
+            reason = "invalid token_mint"
+        elif not ticker or ticker.lower() == "nan" or not ticker_re.match(ticker):
+            reason = "invalid ticker"
+        elif key in seen:
+            reason = "duplicate wallet+token_mint"
+
+        if reason:
+            errors.append({"row": i + 2, "wallet": wallet, "token_mint": mint, "ticker": ticker, "reason": reason})
+        else:
+            valid_idx.append(i)
+            seen.add(key)
+
+    valid_df = df.loc[valid_idx].reset_index(drop=True)
+    return valid_df, errors

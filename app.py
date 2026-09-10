@@ -1,5 +1,5 @@
 """
-Solana Memecoin Signal Bot — v2.2
+from watchlist_upload import render_watchlist_uploadSolana Memecoin Signal Bot — v2.2
 ==================================
 A research / alerting dashboard for Solana memecoins. This tool is
 informational only:
@@ -32,6 +32,7 @@ from modules import rugcheck as rc
 from modules import backtest as bt
 from modules.solana_client import SolanaClient, SolanaRpcError
 
+from watchlist_upload import render_watchlist_upload
 st.set_page_config(
     page_title="Solana Memecoin Signal Bot v2.2",
     page_icon="🛰️",
@@ -215,15 +216,24 @@ def load_data():
     )
     if wl_file is None:
         st.info(
-            "Live Mode scores a watchlist you provide against the real Solana "
+            "Live Mode scores a watchlist you provide against the real "
             "chain. Upload a CSV with columns: wallet, token_mint, ticker.",
-            icon="🛰️",
+            icon="ℹ️",
         )
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-    watchlist = dd.load_csv(wl_file)
-    return watchlist, pd.DataFrame(), pd.DataFrame()
+    watchlist, csv_errors = dd.load_watchlist_csv(wl_file)
+    if csv_errors:
+        error_lines = [
+            f"Row {e['row']}: wallet=`{e['wallet']}` mint=`{e['token_mint']}` ticker=`{e['ticker']}` — {e['reason']}"
+            for e in csv_errors
+        ]
+        st.sidebar.warning(f"Skipped {len(csv_errors)} row(s):\n\n" + "\n\n".join(error_lines))
+    if watchlist.empty:
+        st.warning("No valid rows in watchlist CSV.")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
+    return watchlist, pd.DataFrame(), pd.DataFrame()
 
 wallets_df, tokens_df, buys_df = load_data()
 
