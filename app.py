@@ -1,5 +1,5 @@
 """
-from watchlist_upload import render_watchlist_uploadSolana Memecoin Signal Bot — v2.2
+Solana Memecoin Signal Bot – v2.2
 ==================================
 A research / alerting dashboard for Solana memecoins. This tool is
 informational only:
@@ -32,7 +32,6 @@ from modules import rugcheck as rc
 from modules import backtest as bt
 from modules.solana_client import SolanaClient, SolanaRpcError
 
-from watchlist_upload import render_watchlist_upload
 st.set_page_config(
     page_title="Solana Memecoin Signal Bot v2.2",
     page_icon="🛰️",
