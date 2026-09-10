@@ -38,9 +38,9 @@ st.set_page_config(
     layout="wide",
 )
 
-CUSTOM_CSS = """
+THEMES = {
+    "Violet (default)": """
 <style>
-/* Gradient header glow */
 h1, h2, h3 {
     background: linear-gradient(90deg, #7C3AED, #06B6D4);
     -webkit-background-clip: text;
@@ -48,49 +48,41 @@ h1, h2, h3 {
     font-weight: 800 !important;
     letter-spacing: 0.5px;
 }
-
-/* Sidebar polish */
-section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #10142240, #0B0E17);
-    border-right: 1px solid #7C3AED33;
+</style>
+""",
+    "Terminal Green": """
+<style>
+body, .stApp {
+    background-color: #0d1117 !important;
 }
-
-/* Buttons: gradient + glow on hover */
-.stButton > button {
-    background: linear-gradient(90deg, #7C3AED, #06B6D4);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-weight: 600;
-    transition: 0.2s ease-in-out;
-    box-shadow: 0 0 0px #7C3AED00;
-}
-.stButton > button:hover {
-    box-shadow: 0 0 16px #7C3AEDaa;
-    transform: translateY(-1px);
-}
-
-/* Metric cards */
-div[data-testid="stMetric"] {
-    background: #151A2B;
-    border: 1px solid #7C3AED33;
-    border-radius: 12px;
-    padding: 12px 16px;
-}
-
-/* Tabs underline glow */
-button[data-baseweb="tab"][aria-selected="true"] {
-    border-bottom: 2px solid #06B6D4 !important;
-    color: #06B6D4 !important;
-}
-
-/* Success/warning/error boxes: subtle glow border */
-div[data-testid="stAlert"] {
-    border-radius: 10px;
-    border-left: 3px solid #06B6D4;
+h1, h2, h3 {
+    background: linear-gradient(90deg, #00FF9C, #00B368);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 800 !important;
+    letter-spacing: 0.5px;
+    font-family: monospace;
 }
 </style>
-"""
+""",
+    "Light Mode": """
+<style>
+body, .stApp {
+    background-color: #FAFAFA !important;
+    color: #111111 !important;
+}
+h1, h2, h3 {
+    background: linear-gradient(90deg, #7C3AED, #06B6D4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 800 !important;
+}
+</style>
+""",
+}
+
+selected_theme = st.sidebar.selectbox("Theme", list(THEMES.keys()))
+CUSTOM_CSS = THEMES[selected_theme]
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 STATUS_COLORS = {
