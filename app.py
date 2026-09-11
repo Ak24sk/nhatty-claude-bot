@@ -25,6 +25,7 @@ import streamlit as st
 from modules import demo_data as dd
 from modules import gecko_price as gpr
 from modules import dev_history as dh
+from modules import live_tokens as lt
 from modules import wallet_intel as wi
 from modules import buy_sell as bs
 from modules import convergence as conv
@@ -254,7 +255,12 @@ def load_data():
         st.warning("No valid rows in watchlist CSV.")
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-    return watchlist, pd.DataFrame(), pd.DataFrame()
+    live_tokens_df, live_token_errors = lt.build_live_tokens_df(watchlist, rpc_url)
+    if live_token_errors:
+        error_lines = [f"- `{e['mint']}`: {e['reason']}" for e in live_token_errors]
+        st.sidebar.warning("Some tokens failed to load:\n\n" + "\n".join(error_lines))
+    empty_buys_df = pd.DataFrame(columns=["wallet", "token_mint"])
+    return watchlist, live_tokens_df, empty_buys_df
 
 wallets_df, tokens_df, buys_df = load_data()
 
@@ -286,13 +292,16 @@ with tabs[0]:
     elif not tokens_df.empty:
         overview_rows = []
         for _, token in tokens_df.iterrows():
-            largest_accounts = [
-                {"uiAmount": token["total_supply"] * s}
-                for s in [0.15, 0.08, 0.05, 0.04, 0.03, 0.02, 0.02, 0.01, 0.01, 0.01]
-            ]
-            # Scale synthetic holders so top10 share roughly matches the demo column
-            scale = token["top10_holder_share"] / 0.42
-            largest_accounts = [{"uiAmount": a["uiAmount"] * scale} for a in largest_accounts]
+            if mode == "Live (Solana RPC)" and "real_largest_accounts" in token and token["real_largest_accounts"]:
+                largest_accounts = token["real_largest_accounts"]
+            else:
+                largest_accounts = [
+                    {"uiAmount": token["total_supply"] * s}
+                    for s in [0.15, 0.08, 0.05, 0.04, 0.03, 0.02, 0.02, 0.01, 0.01, 0.01]
+                ]
+                # Scale synthetic holders so top10 share roughly matches the demo column
+                scale = token["top10_holder_share"] / 0.42
+                largest_accounts = [{"uiAmount": a["uiAmount"] * scale} for a in largest_accounts]
 
             safety = sg.run_safety_gate(
                 mint_account_info={"value": {"data": {"parsed": {"info": {
