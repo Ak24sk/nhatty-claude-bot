@@ -31,7 +31,20 @@ LP_LOCKED_THRESHOLD = 0.80
 
 HIGH_SEVERITY_LEVELS = {"danger", "high", "critical"}
 
+def get_creator_address(mint_address: str) -> Optional[str]:
+    """Fetch the token's creator/deployer wallet address from RugCheck's full report."""
+    url = f"{RUGCHECK_BASE_URL}/tokens/{mint_address}/report"
+    try:
+        resp = requests.get(url, timeout=REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json() or {}
+    except (requests.RequestException, ValueError):
+        return None
 
+    creator = data.get("creator") or data.get("creatorAddress")
+    if isinstance(creator, dict):
+        creator = creator.get("address")
+    return creator
 class RugCheckError(Exception):
     """Raised when RugCheck is unreachable or returns an unexpected response."""
     pass
@@ -50,6 +63,20 @@ def get_token_summary(mint_address: str) -> Dict:
     except ValueError as e:
         raise RugCheckError(f"RugCheck returned unparseable JSON: {e}")
 
+def get_creator_address(mint_address: str) -> Optional[str]:
+    """Fetch the token's creator/deployer wallet address from RugCheck's full report."""
+    url = f"{RUGCHECK_BASE_URL}/tokens/{mint_address}/report"
+    try:
+        resp = requests.get(url, timeout=REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json() or {}
+    except (requests.RequestException, ValueError):
+        return None
+
+    creator = data.get("creator") or data.get("creatorAddress")
+    if isinstance(creator, dict):
+        creator = creator.get("address")
+    return creator
 
 def derive_lp_lock_status(summary: Dict) -> Optional[bool]:
     """
@@ -57,6 +84,7 @@ def derive_lp_lock_status(summary: Dict) -> Optional[bool]:
     `lpLockedPct` (0-100, confirmed against a live response). We fall back
     to checking a nested `markets`/`liquidity` list for older or alternate
     response shapes.
+
 
     Returns True/False if we found usable data, or None if the response
     didn't include anything we recognize as LP-lock info.

@@ -23,6 +23,7 @@ import streamlit as st
 
 from modules import demo_data as dd
 from modules import gecko_price as gpr
+from modules import dev_history as dh
 from modules import wallet_intel as wi
 from modules import buy_sell as bs
 from modules import convergence as conv
@@ -589,6 +590,7 @@ def _fetch_token_inspection_data(mint_addr, rpc_url_cached):
         return {"error": "no mint info"}
 
     rc_data = rc.get_lp_lock_and_honeypot(mint_addr)
+    creator_addr = rc.get_creator_address(mint_addr)
     market_data = gpr.get_token_market_data(mint_addr)
 
     # Resolve owners of the top 10 largest token accounts (extra RPC calls,
@@ -743,6 +745,8 @@ with tabs[6]:
                             "Honeypot check is a proxy based on RugCheck's own risk flags, "
                             "not a live sell-simulation — treat it as one more data point."
                         )
+                        st.markdown("---")
+                        dh.render_dev_history(creator_addr)
     else:
         if tokens_df.empty:
             st.info("No token data loaded.")
