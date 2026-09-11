@@ -619,6 +619,7 @@ def _fetch_token_inspection_data(mint_addr, rpc_url_cached):
         "rc_data": rc_data,
         "market_data": market_data,
         "top_holder_owners": top_holder_owners,
+"creator_addr": creator_addr,
     }
 
 
@@ -643,6 +644,7 @@ with tabs[6]:
                     rc_data = fetched["rc_data"]
                     market_data = fetched["market_data"]
                     top_holder_owners = fetched["top_holder_owners"]
+                    creator_addr = fetched.get("creator_addr")
 
                     total_supply = float((supply_info or {}).get("uiAmount") or 0)
                     largest_amounts = [
