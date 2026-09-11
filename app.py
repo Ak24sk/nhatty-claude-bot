@@ -741,15 +741,15 @@ with tabs[6]:
                         if market_data.get("liquidity_usd"):
                             c3.metric("Liquidity", f"${float(market_data['liquidity_usd']):,.0f}")
                     if market_data.get("volume_24h_usd") is not None:
-                        st.caption(f"**24h volume: ${float(market_data['volume_24h_usd']):,.0f}**")
+                        st.markdown(f"<span style='color:white'><b>24h volume: ${float(market_data['volume_24h_usd']):,.0f}</b></span>", unsafe_allow_html=True)
                         if market_data.get("liquidity_usd"):
                             vol_liq_ratio = float(market_data["volume_24h_usd"]) / float(market_data["liquidity_usd"])
                             ratio_flag = " ⚠️ high — thin liquidity relative to volume, price may be easy to move" if vol_liq_ratio > 10 else ""
-                            st.caption(f"**Volume/Liquidity ratio: {vol_liq_ratio:.1f}x{ratio_flag}**")
+                            st.markdown(f"<span style='color:white'><b>Volume/Liquidity ratio: {vol_liq_ratio:.1f}x{ratio_flag}</b></span>", unsafe_allow_html=True)
                     if market_data.get("dex"):
-                        st.caption(f"**Traded on: {market_data['dex'].title()} (best liquidity pool)**")
+                        st.markdown(f"<span style='color:white'><b>Traded on: {market_data['dex'].title()} (best liquidity pool)</b></span>", unsafe_allow_html=True)
                     if market_data.get("pool_created_at"):
-                        st.caption(f"**Pool created: {format_duration_since(market_data['pool_created_at'])} ago (pool age, not necessarily token launch time)**")
+                        st.markdown(f"<span style='color:white'><b>Pool created: {format_duration_since(market_data['pool_created_at'])} ago (pool age, not necessarily token launch time)</b></span>", unsafe_allow_html=True)
                     socials = []
                     if market_data.get("twitter"):
                         socials.append(f"[Twitter](https://twitter.com/{market_data['twitter']})")
