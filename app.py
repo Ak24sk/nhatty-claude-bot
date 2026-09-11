@@ -17,6 +17,7 @@ Run modes:
 See README.md for setup, architecture, and how to wire up live mode.
 """
 
+from datetime import datetime, timezone
 import time
 import pandas as pd
 import streamlit as st
@@ -32,6 +33,34 @@ from modules import safety_gate as sg
 from modules import rugcheck as rc
 from modules import backtest as bt
 from modules.solana_client import SolanaClient, SolanaRpcError
+
+
+def format_duration_since(iso_timestamp: str) -> str:
+    """Convert an ISO timestamp into a human-readable elapsed duration, e.g. '2 days 5 hrs 3 mins'."""
+    if not iso_timestamp:
+        return "unknown"
+    try:
+        ts = iso_timestamp.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        delta = datetime.now(timezone.utc) - dt
+        total_seconds = int(delta.total_seconds())
+        if total_seconds < 0:
+            total_seconds = 0
+        days, rem = divmod(total_seconds, 86400)
+        hours, rem = divmod(rem, 3600)
+        minutes, _ = divmod(rem, 60)
+        parts = []
+        if days:
+            parts.append(f"{days} day{'s' if days != 1 else ''}")
+        if hours:
+            parts.append(f"{hours} hr{'s' if hours != 1 else ''}")
+        if minutes or not parts:
+            parts.append(f"{minutes} min{'s' if minutes != 1 else ''}")
+        return " ".join(parts)
+    except (ValueError, TypeError):
+        return iso_timestamp
 
 st.set_page_config(
     page_title="Solana Memecoin Signal Bot v2.2",
@@ -720,7 +749,7 @@ with tabs[6]:
                     if market_data.get("dex"):
                         st.caption(f"Traded on: {market_data['dex'].title()} (best liquidity pool)")
                     if market_data.get("pool_created_at"):
-                        st.caption(f"Pool created: {market_data['pool_created_at']} (pool age, not necessarily token launch time)")
+                        st.caption(f"Pool created: {format_duration_since(market_data['pool_created_at'])} ago (pool age, not necessarily token launch time)")
                     socials = []
                     if market_data.get("twitter"):
                         socials.append(f"[Twitter](https://twitter.com/{market_data['twitter']})")
