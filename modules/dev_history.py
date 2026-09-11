@@ -14,8 +14,7 @@ Requires a free Mobula API key, stored in Streamlit secrets as:
 import requests
 import streamlit as st
 
-MOBULA_BASE_URL = "https://api.mobula.io/api/1"
-
+MOBULA_BASE_URL = "https://api.mobula.io/api/2"
 
 def get_dev_history(creator_wallet: str) -> dict:
     """
@@ -39,7 +38,7 @@ def get_dev_history(creator_wallet: str) -> dict:
 
     try:
         resp = requests.get(
-            f"{MOBULA_BASE_URL}/wallet/deployer-tokens",
+            f"{MOBULA_BASE_URL}/wallet/deployer",
             params={"wallet": creator_wallet, "blockchain": "solana"},
             headers={"Authorization": api_key},
             timeout=10,
@@ -58,7 +57,7 @@ def get_dev_history(creator_wallet: str) -> dict:
         tokens = []
 
     total = len(tokens)
-    migrated = sum(1 for t in tokens if t.get("migrated") or t.get("bonding_status") == "migrated")
+    migrated = sum(1 for t in tokens if (t.get("token") or {}).get("bonded"))
     not_migrated = total - migrated
     migration_rate = (migrated / total * 100) if total else 0.0
 
