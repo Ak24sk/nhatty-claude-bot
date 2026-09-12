@@ -30,7 +30,7 @@ from modules import robinhood_inspector as rh
 from modules import wallet_intel as wi
 from modules import buy_sell as bs
 from modules import convergence as conv
-from modules import x_attention as xa
+from modules import twitter_attention as ta
 from modules import safety_gate as sg
 from modules import rugcheck as rc
 from modules import backtest as bt
@@ -156,7 +156,7 @@ def _get_secret(key: str, default: str = "") -> str:
 
 
 rpc_url = None
-x_bearer = None
+twitter_api_key = None
 if mode == "Live (Solana RPC)":
     st.sidebar.subheader("Live mode settings")
     rpc_url = st.sidebar.text_input(
@@ -166,9 +166,9 @@ if mode == "Live (Solana RPC)":
         help="Public RPC is heavily rate-limited. For reliable use, get a "
              "free/paid endpoint from Helius, QuickNode, or Triton.",
     )
-    x_bearer = st.sidebar.text_input(
-        "X (Twitter) API bearer token (optional)",
-        value=_get_secret("X_BEARER_TOKEN"),
+    twitter_api_key = st.sidebar.text_input(
+        "TwitterAPI.io API key (optional)",
+        value=_get_secret("TWITTERAPI_API_KEY"),
         type="password",
         help="Leave blank to keep using simulated attention data even in Live Mode.",
     )
@@ -181,7 +181,7 @@ tabs = st.tabs([
     "👛 Wallet Scanner",
     "🧠 Wallet Intelligence",
     "🔗 Convergence",
-    "📣 X Attention",
+    "📣 Twitter Attention",
     "🛡️ Safety Gate",
     "🔍 Token Inspector",
     "📈 Score Validation",
@@ -319,8 +319,8 @@ with tabs[0]:
             token_buys = buys_df[buys_df["token_mint"] == token["token_mint"]] if not buys_df.empty else pd.DataFrame()
             wallet_count = token_buys["wallet"].nunique() if not token_buys.empty else 0
 
-            timeline = xa.get_attention_timeline(token["ticker"], demo_mode=True)
-            accel = xa.compute_acceleration(timeline)
+            timeline = ta.get_attention_timeline(token["ticker"], demo_mode=True)
+            accel = ta.compute_acceleration(timeline)
 
             avg_score = 55  # placeholder aggregate; see Wallet Intelligence tab for real per-wallet scores
             status = sg.unified_status(safety, wallet_count, accel["label"], avg_score)
@@ -544,18 +544,18 @@ with tabs[3]:
 
 
 # --------------------------------------------------------------------------
-# Tab 5: X Attention
+# Tab 5: Twitter Attention
 # --------------------------------------------------------------------------
 
 with tabs[4]:
-    st.subheader("X (Twitter) attention engine")
+    st.subheader("Twitter attention engine")
     query = st.text_input("Ticker / query to check", value="WOJAK2")
 
     if st.button("Check attention", type="primary"):
-        use_live = mode == "Live (Solana RPC)" and bool(x_bearer)
-        timeline = xa.get_attention_timeline(query, bearer_token=x_bearer, demo_mode=not use_live)
-        accel = xa.compute_acceleration(timeline)
-        bot_share = xa.estimate_bot_share(seed=query)
+        use_live = mode == "Live (Solana RPC)" and bool(twitter_api_key)
+        timeline = ta.get_attention_timeline(query, api_key=twitter_api_key, demo_mode=not use_live)
+        accel = ta.compute_acceleration(timeline)
+        bot_share = ta.estimate_bot_share(seed=query)
 
         col1, col2, col3 = st.columns(3)
         col1.metric("Acceleration ratio", f"{accel['acceleration_ratio']}x", help="Recent hourly avg vs. prior baseline")
@@ -564,7 +564,7 @@ with tabs[4]:
 
         st.line_chart(pd.DataFrame(timeline).set_index("hour_start")["post_count"])
         if not use_live:
-            st.caption("Showing simulated attention data (Demo Mode, or no X bearer token set).")
+            st.caption("Showing simulated attention data (Demo Mode, or no TwitterAPI.io key set).")
 
 
 # --------------------------------------------------------------------------
