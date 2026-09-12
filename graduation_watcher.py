@@ -248,8 +248,14 @@ def on_message(ws, message):
         mint = data.get("mint")
         if mint:
             info = tracked_tokens.get(mint, {})
-            creator = rc.get_creator_address(mint)
+            try:
+                creator = rc.get_creator_address(mint)
+            except Exception as e:
+                print(f"[migration] creator lookup failed for {mint}: {e}")
+                creator = None
+            print(f"[migration] mint={mint} creator={creator}")
             dev_line = get_dev_history_summary(creator) if creator else ""
+            print(f"[migration] dev_line={dev_line!r}")
             message = (
                 f"🎓 *GRADUATED* — {info.get('symbol', '?')} just migrated to a DEX.\n"
                 f"`{mint}`"
