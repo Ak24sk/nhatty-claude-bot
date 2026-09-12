@@ -44,6 +44,11 @@ import websocket  # from websocket-client package
 from flask import Flask
 from solders.pubkey import Pubkey
 
+from modules import rugcheck as rc
+
+MOBULA_API_KEY = os.environ.get("MOBULA_API_KEY", "")
+MOBULA_BASE_URL = "https://api.mobula.io/api/2"
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -78,6 +83,38 @@ COMPLETE_OFFSET = 48
 
 _lock = threading.Lock()
 tracked_tokens = {}  # mint -> {"created_at": epoch_seconds, "name": str, "symbol": str, "warned": bool}
+
+
+# ---------------------------------------------------------------------------
+# Dev history (Mobula) - reused for graduation alerts
+# ---------------------------------------------------------------------------
+
+def get_dev_history_summary(creator_wallet: str) -> str:
+    """Returns a short human-readable dev history string, or '' if unavailable."""
+    if not creator_wallet or not MOBULA_API_KEY:
+        return ""
+    try:
+        resp = requests.get(
+            f"{MOBULA_BASE_URL}/wallet/deployer",
+            params={"wallet": creator_wallet, "blockchain": "solana"},
+            headers={"Authorization": MOBULA_API_KEY},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        print(f"[dev history] Mobula lookup failed: {e}")
+        return ""
+
+    tokens = data.get("data", []) if isinstance(data, dict) else data
+    if not isinstance(tokens, list) or not tokens:
+        return ""
+
+    total = len(tokens)
+    migrated = sum(1 for t in tokens if (t.get("token") or {}).get("bonded"))
+    rate = round((migrated / total * 100), 1) if total else 0.0
+    flag = " ⚠️ low grad rate" if rate < 20 else ""
+    return f"Dev: {total} launched, {migrated} graduated ({rate}%){flag}"
 
 
 # ---------------------------------------------------------------------------
@@ -211,10 +248,15 @@ def on_message(ws, message):
         mint = data.get("mint")
         if mint:
             info = tracked_tokens.get(mint, {})
-            send_telegram(
+            creator = rc.get_creator_address(mint)
+            dev_line = get_dev_history_summary(creator) if creator else ""
+            message = (
                 f"🎓 *GRADUATED* — {info.get('symbol', '?')} just migrated to a DEX.\n"
                 f"`{mint}`"
             )
+            if dev_line:
+                message += f"\n{dev_line}"
+            send_telegram(message)
             with _lock:
                 tracked_tokens.pop(mint, None)
 
