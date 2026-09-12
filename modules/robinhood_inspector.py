@@ -31,6 +31,12 @@ RPC_URL = "https://rpc.mainnet.chain.robinhood.com"
 BLOCKSCOUT_BASE = "https://robinhoodchain.blockscout.com/api/v2"
 REQUEST_TIMEOUT = 10
 
+REQUEST_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json",
+}
+
 BURN_ADDRESSES = {
     "0x0000000000000000000000000000000000000000000000000000000000000000",  # padded zero (32 bytes)
     "0x0000000000000000000000000000000000000000",
@@ -44,6 +50,7 @@ def _eth_call(to_address: str, data: str) -> Optional[str]:
     try:
         resp = requests.post(
             RPC_URL,
+            headers=REQUEST_HEADERS,
             json={
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -76,6 +83,7 @@ def get_token_info(contract_address: str) -> dict:
     try:
         resp = requests.get(
             f"{BLOCKSCOUT_BASE}/tokens/{contract_address}",
+            headers=REQUEST_HEADERS,
             timeout=REQUEST_TIMEOUT,
         )
         resp.raise_for_status()
@@ -89,6 +97,7 @@ def get_top_holders(contract_address: str, limit: int = 10) -> list:
     try:
         resp = requests.get(
             f"{BLOCKSCOUT_BASE}/tokens/{contract_address}/holders",
+            headers=REQUEST_HEADERS,
             timeout=REQUEST_TIMEOUT,
         )
         resp.raise_for_status()
@@ -104,6 +113,7 @@ def get_contract_verification(contract_address: str) -> dict:
     try:
         resp = requests.get(
             f"{BLOCKSCOUT_BASE}/smart-contracts/{contract_address}",
+            headers=REQUEST_HEADERS,
             timeout=REQUEST_TIMEOUT,
         )
         if resp.status_code == 404:
