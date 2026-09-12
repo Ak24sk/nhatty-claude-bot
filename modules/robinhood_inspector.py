@@ -26,9 +26,10 @@ IMPORTANT LIMITATIONS (read before trusting this for a buy decision):
 from typing import Optional
 
 import requests
+import streamlit as st
 
 RPC_URL = "https://rpc.mainnet.chain.robinhood.com"
-BLOCKSCOUT_BASE = "https://robinhoodchain.blockscout.com/api/v2"
+BLOCKSCOUT_BASE = "https://api.blockscout.com/4663/api/v2"
 REQUEST_TIMEOUT = 10
 
 REQUEST_HEADERS = {
@@ -84,6 +85,7 @@ def get_token_info(contract_address: str) -> dict:
         resp = requests.get(
             f"{BLOCKSCOUT_BASE}/tokens/{contract_address}",
             headers=REQUEST_HEADERS,
+            params={"apikey": st.secrets.get("BLOCKSCOUT_API_KEY", "")},
             timeout=REQUEST_TIMEOUT,
         )
         resp.raise_for_status()
@@ -98,6 +100,7 @@ def get_top_holders(contract_address: str, limit: int = 10) -> list:
         resp = requests.get(
             f"{BLOCKSCOUT_BASE}/tokens/{contract_address}/holders",
             headers=REQUEST_HEADERS,
+            params={"apikey": st.secrets.get("BLOCKSCOUT_API_KEY", "")},
             timeout=REQUEST_TIMEOUT,
         )
         resp.raise_for_status()
@@ -114,6 +117,7 @@ def get_contract_verification(contract_address: str) -> dict:
         resp = requests.get(
             f"{BLOCKSCOUT_BASE}/smart-contracts/{contract_address}",
             headers=REQUEST_HEADERS,
+            params={"apikey": st.secrets.get("BLOCKSCOUT_API_KEY", "")},
             timeout=REQUEST_TIMEOUT,
         )
         if resp.status_code == 404:
