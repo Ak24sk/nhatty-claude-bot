@@ -26,6 +26,7 @@ from modules import demo_data as dd
 from modules import gecko_price as gpr
 from modules import dev_history as dh
 from modules import live_tokens as lt
+from modules import robinhood_inspector as rh
 from modules import wallet_intel as wi
 from modules import buy_sell as bs
 from modules import convergence as conv
@@ -185,6 +186,7 @@ tabs = st.tabs([
     "🔍 Token Inspector",
     "📈 Score Validation",
     "🐋 Smart Money",
+    "🇺🇸 Robinhood Chain",
 ])
 
 
@@ -993,3 +995,56 @@ with tabs[8]:
                         with st.expander(f"{len(near_misses)} near-miss cluster(s) below your {min_wallets_sm}-wallet threshold"):
                             for c in near_misses:
                                 st.write(f"**Token `{c['token_mint']}`** — {c['wallet_count']} wallet(s): {', '.join(c['wallets'])}")
+
+
+# ---------------------------------------------------------------------------
+# Tab 10: Robinhood Chain Inspector
+# ---------------------------------------------------------------------------
+
+with tabs[9]:
+    st.subheader("Robinhood Chain token inspector")
+    st.caption(
+        "⚠️ Scoped v1: no honeypot / sell-simulation check exists yet for this "
+        "chain in any free service found. No LP-lock check either. Treat "
+        "results here as data points, not a verdict."
+    )
+
+    rh_address = st.text_input("Contract address (0x...)", key="rh_address")
+    if st.button("Inspect Robinhood Chain token", type="primary"):
+        if not rh_address:
+            st.error("Enter a contract address first.")
+        else:
+            with st.spinner("Fetching from Blockscout + RPC..."):
+                result = rh.inspect_token(rh_address)
+
+            if result.get("token_info_error"):
+                st.warning(f"Token info lookup issue: {result['token_info_error']}")
+
+            st.markdown(f"### {result['name']} ({result['symbol']})")
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric(
+                "Total Supply",
+                f"{result['total_supply']:,.0f}" if result["total_supply"] else "?"
+            )
+            c2.metric(
+                "Holders",
+                result["holders_count"] if result["holders_count"] else "?"
+            )
+            c3.metric(
+                "Top 10 Share",
+                f"{result['top10_share']*100:.1f}%" if result["top10_share"] is not None else "?"
+            )
+
+            st.markdown("---")
+
+            verified_icon = "✅" if result["is_verified"] else "❌"
+            st.write(f"{verified_icon} **Contract Verified** — {'Yes' if result['is_verified'] else 'No, unverified contract is a red flag'}")
+
+            ownership_map = {
+                "renounced": ("✅", "Ownership renounced"),
+                "not_renounced": ("❌", "Ownership NOT renounced — owner retains control"),
+                "unknown": ("⚪", "Ownership status unknown (no owner() function found)"),
+            }
+            icon, label = ownership_map.get(result["ownership_status"], ("⚪", "Unknown"))
+            st.write(f"{icon} **{label}**")
