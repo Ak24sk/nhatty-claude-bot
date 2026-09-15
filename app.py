@@ -180,7 +180,6 @@ tabs = st.tabs([
     "📊 Overview",
     "👛 Wallet Scanner",
     "🧠 Wallet Intelligence",
-    "🔗 Convergence",
     "📣 Twitter Attention",
     "🛡️ Safety Gate",
     "🔍 Token Inspector",
@@ -514,41 +513,14 @@ with tabs[2]:
 # Tab 4: Convergence
 # --------------------------------------------------------------------------
 
-with tabs[3]:
-    st.subheader("Wallet convergence detection")
-    st.caption("Multiple independent wallets buying the same token within a short window.")
-
-    window_min = st.slider("Convergence window (minutes)", 5, 120, 30)
-    min_wallets = st.slider("Minimum wallets to flag a cluster", 2, 10, 3)
-
-    if buys_df.empty:
-        st.info("No buy-event data loaded.")
-    else:
-        events = buys_df.copy()
-        events["combined_score"] = 50  # simple default; wire to Tab 3 scores if desired
-        clusters = conv.detect_convergence(
-            events.to_dict("records"),
-            window_seconds=window_min * 60,
-            min_wallets=min_wallets,
-        )
-        if clusters:
-            for c in clusters:
-                ticker_lookup = tokens_df.set_index("token_mint")["ticker"].to_dict() if not tokens_df.empty else {}
-                ticker = ticker_lookup.get(c["token_mint"], c["token_mint"][:8] + "…")
-                st.markdown(
-                    f"**{ticker}** — {c['wallet_count']} wallets converged "
-                    f"(avg score {c['avg_wallet_score']})"
-                )
-                st.caption(f"{len(c['wallets'])} wallets: " + ", ".join(w[:8] + "…" for w in c["wallets"][:6]))
-        else:
-            st.info("No convergence clusters found at the current thresholds.")
+# Convergence tab removed (merged into Smart Money below).
 
 
 # --------------------------------------------------------------------------
 # Tab 5: Twitter Attention
 # --------------------------------------------------------------------------
 
-with tabs[4]:
+with tabs[3]:
     st.subheader("Twitter attention engine")
     query = st.text_input("Ticker / query to check", value="WOJAK2")
 
@@ -572,7 +544,7 @@ with tabs[4]:
 # Tab 6: Safety Gate
 # --------------------------------------------------------------------------
 
-with tabs[5]:
+with tabs[4]:
     st.subheader("Safety gate")
     st.caption("Hard checks that BLOCK a token regardless of how good other signals look.")
 
@@ -664,7 +636,7 @@ def _fetch_token_inspection_data(mint_addr, rpc_url_cached):
     }
 
 
-with tabs[6]:
+with tabs[5]:
     st.subheader("Live token inspection")
 
     if mode == "Live (Solana RPC)":
@@ -799,7 +771,7 @@ def _score_validation_tab():
     pass
 
 
-with tabs[7]:
+with tabs[6]:
     st.subheader("Score validation")
     st.caption(
         "Checks scores against real token prices afterward using free "
@@ -862,7 +834,7 @@ with tabs[7]:
 # Tab 9: Smart Money Convergence
 # --------------------------------------------------------------------------
 
-with tabs[8]:
+with tabs[7]:
     st.subheader("Smart money convergence")
     st.caption(
         "Paste a list of wallet addresses (KOLs, smart money, early catchers - "
@@ -984,8 +956,10 @@ with tabs[8]:
                         )
                     else:
                         st.success(f"Found {len(real_clusters)} convergence cluster(s)!")
+                        ticker_lookup = tokens_df.set_index("token_mint")["ticker"].to_dict() if not tokens_df.empty else {}
                         for c in real_clusters:
-                            st.markdown(f"### Token: `{c['token_mint']}`")
+                            ticker = ticker_lookup.get(c["token_mint"], c["token_mint"][:8] + "…")
+                            st.markdown(f"### {ticker} (`{c['token_mint']}`)")
                             st.write(f"**{c['wallet_count']} wallets** bought within the window:")
                             for w in c["wallets"]:
                                 st.write(f"- {w}")
@@ -1002,7 +976,7 @@ with tabs[8]:
 # Tab 10: Robinhood Chain Inspector
 # ---------------------------------------------------------------------------
 
-with tabs[9]:
+with tabs[8]:
     st.subheader("Robinhood Chain token inspector")
     st.caption(
         "⚠️ Scoped v1: no honeypot / sell-simulation check exists yet for this "
@@ -1056,7 +1030,7 @@ with tabs[9]:
 # --------------------------------------------------------------------------
 from modules import trade_rules as tr
 
-with tabs[10]:
+with tabs[9]:
     st.subheader("Trade Rules")
     st.caption("Position sizing + a pre-trade checklist. Informational only — this tab does not place trades.")
 
