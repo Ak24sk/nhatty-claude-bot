@@ -187,6 +187,7 @@ tabs = st.tabs([
     "📈 Score Validation",
     "🐋 Smart Money",
     "🇺🇸 Robinhood Chain",
+    "📐 Trade Rules",
 ])
 
 
@@ -1048,3 +1049,53 @@ with tabs[9]:
             }
             icon, label = ownership_map.get(result["ownership_status"], ("⚪", "Unknown"))
             st.write(f"{icon} **{label}**")
+
+
+# --------------------------------------------------------------------------
+# Trade Rules tab
+# --------------------------------------------------------------------------
+from modules import trade_rules as tr
+
+with tabs[10]:
+    st.subheader("Trade Rules")
+    st.caption("Position sizing + a pre-trade checklist. Informational only — this tab does not place trades.")
+
+    st.markdown("#### Position size calculator")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        tr_account_size = st.number_input("Account size (USD)", min_value=0.0, value=1000.0, step=50.0)
+    with col2:
+        tr_risk_pct = st.number_input("Max risk per trade (%)", min_value=0.1, max_value=10.0, value=1.0, step=0.1)
+    with col3:
+        tr_stop_pct = st.number_input("Stop-loss distance (%)", min_value=1.0, max_value=100.0, value=20.0, step=1.0)
+
+    tr_entry_price = st.number_input(
+        "Entry price (optional, USD per token)",
+        min_value=0.0, value=0.0, step=0.0000001, format="%.8f",
+    )
+
+    tr_result = tr.calculate_position_size(
+        account_size_usd=tr_account_size,
+        risk_pct=tr_risk_pct,
+        stop_loss_pct=tr_stop_pct,
+        entry_price=tr_entry_price if tr_entry_price > 0 else None,
+    )
+
+    m1, m2 = st.columns(2)
+    m1.metric("Max $ at risk this trade", f"${tr_result.max_risk_usd:,.2f}")
+    m2.metric("Max position size", f"${tr_result.position_size_usd:,.2f}")
+    if tr_result.position_size_tokens is not None:
+        m3, m4 = st.columns(2)
+        m3.metric("≈ Token quantity", f"{tr_result.position_size_tokens:,.2f}")
+        m4.metric("Stop-loss price", f"${tr_result.stop_loss_price:,.8f}")
+
+    st.divider()
+    st.markdown("#### Pre-trade checklist")
+    st.caption("Check off each item before entering. All checked = cleared to trade.")
+
+    tr_checked = [st.checkbox(label, key=f"tr_{key}") for key, label in tr.CHECKLIST_ITEMS]
+
+    if tr_checked and all(tr_checked):
+        st.success("Cleared — all pre-trade checks passed.")
+    else:
+        st.warning(f"{sum(tr_checked)}/{len(tr_checked)} checks passed. Not cleared yet.")
