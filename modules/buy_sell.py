@@ -152,3 +152,53 @@ def detect_buys_any_token(tx, owner):
                 "sol_delta": round(combined_sol_delta, 6),
             })
     return results
+
+
+def detect_sells_any_token(tx, owner):
+    """
+    Generalized sell detector: mirrors detect_buys_any_token but for sells.
+    Finds every token the wallet's balance DECREASED for in this tx, where
+    the wallet's combined SOL+WSOL balance INCREASED (it received SOL by
+    giving up tokens - a sell, of any token, not one pre-specified mint).
+
+    Returns a list of dicts: [{"token_mint": str, "token_delta": float,
+    "sol_delta": float}, ...]
+    """
+    if not tx or not tx.get("meta"):
+        return []
+
+    meta = tx.get("meta") or {}
+    message = (tx.get("transaction") or {}).get("message") or {}
+    account_keys = message.get("accountKeys") or []
+
+    native_sol_delta = None
+    for idx, key in enumerate(account_keys):
+        pubkey = key.get("pubkey") if isinstance(key, dict) else key
+        if pubkey == owner:
+            pre_balances = meta.get("preBalances") or []
+            post_balances = meta.get("postBalances") or []
+            if idx < len(pre_balances) and idx < len(post_balances):
+                native_sol_delta = (post_balances[idx] - pre_balances[idx]) / LAMPORTS_PER_SOL
+            break
+
+    wsol_delta = _token_balance_delta(meta, owner, WSOL_MINT)
+    combined_sol_delta = (native_sol_delta or 0.0) + wsol_delta
+
+    if combined_sol_delta <= 0:
+        return []  # SOL side didn't increase - not a sell
+
+    mints = set()
+    for bal in (meta.get("preTokenBalances") or []) + (meta.get("postTokenBalances") or []):
+        if bal.get("owner") == owner and bal.get("mint") != WSOL_MINT:
+            mints.add(bal.get("mint"))
+
+    results = []
+    for mint in mints:
+        token_delta = _token_balance_delta(meta, owner, mint)
+        if token_delta < 0:
+            results.append({
+                "token_mint": mint,
+                "token_delta": round(token_delta, 6),
+                "sol_delta": round(combined_sol_delta, 6),
+            })
+    return results
