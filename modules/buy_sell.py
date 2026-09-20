@@ -202,3 +202,43 @@ def detect_sells_any_token(tx, owner):
                 "sol_delta": round(combined_sol_delta, 6),
             })
     return results
+
+
+INFRA_PROGRAM_IDS = {
+    "11111111111111111111111111111111",              # System Program
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",    # SPL Token Program
+    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",    # SPL Token-2022 Program
+    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",   # Associated Token Account Program
+    "ComputeBudget111111111111111111111111111111",   # Compute Budget Program
+}
+
+
+def is_market_swap(tx):
+    """
+    True if this transaction invokes any program beyond Solana's basic
+    account/token/compute-budget infrastructure - meaning it went through
+    some kind of swap/AMM/aggregator/launchpad, whichever one, and however
+    deeply the call is nested via CPI. False for plain transfers, airdrop
+    claims, or token-account setup with no swap involved.
+
+    Deliberately a denylist of "boring" infra rather than an allowlist of
+    known DEXs - new swap venues launch constantly, but these five core
+    programs almost never change.
+    """
+    if not tx:
+        return False
+    message = (tx.get("transaction") or {}).get("message") or {}
+    meta = tx.get("meta") or {}
+
+    program_ids = set()
+    for ix in message.get("instructions") or []:
+        pid = ix.get("programId")
+        if pid:
+            program_ids.add(pid)
+    for inner in meta.get("innerInstructions") or []:
+        for ix in inner.get("instructions") or []:
+            pid = ix.get("programId")
+            if pid:
+                program_ids.add(pid)
+
+    return any(pid not in INFRA_PROGRAM_IDS for pid in program_ids)
