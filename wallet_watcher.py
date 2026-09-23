@@ -53,6 +53,8 @@ HELIUS_WS_URL = HELIUS_RPC_URL.replace("https://", "wss://", 1)
 CONVERGENCE_WINDOW_MIN = int(os.environ.get("CONVERGENCE_WINDOW_MIN", "30"))
 CONVERGENCE_MIN_WALLETS = int(os.environ.get("CONVERGENCE_MIN_WALLETS", "2"))
 SOL_PRICE_REFRESH_SEC = int(os.environ.get("SOL_PRICE_REFRESH_SEC", "45"))
+BACKSTOP_POLL_INTERVAL_SEC = int(os.environ.get("BACKSTOP_POLL_INTERVAL_SEC", "90"))
+BACKSTOP_SIGNATURES_PER_WALLET = int(os.environ.get("BACKSTOP_SIGNATURES_PER_WALLET", "15"))
 
 WALLETS_FILE = os.environ.get("WALLETS_FILE", "watched_wallets.txt")
 STATE_FILE = os.environ.get("STATE_FILE", "wallet_watcher_state.json")
@@ -64,6 +66,7 @@ _alerted_clusters = set()
 _sol_usd_price = None  # refreshed in the background, never blocks an alert
 _subscription_map = {}  # subscription_id (int) -> (label, address)
 _pending_subs = {}      # request id (int) -> (label, address)
+_last_backstop_run = None  # ISO timestamp of the last backstop sweep, for /
 
 
 def load_wallets():
@@ -265,6 +268,45 @@ def handle_signature(label, addr, sig):
     check_convergence(_state["sell_events"], "SELL", "🔴🔴")
 
 
+def backstop_scan_once():
+    """Safety net alongside the WebSocket listener - re-checks each wallet's
+    recent signatures via RPC and runs anything not already in seen_keys
+    through handle_signature(), which already dedupes. No-op unless the
+    WebSocket actually missed something during a reconnect gap."""
+    global _last_backstop_run
+    wallets = load_wallets()
+    for label, addr in wallets:
+        try:
+            sigs = _client.get_signatures_for_address(addr, limit=BACKSTOP_SIGNATURES_PER_WALLET)
+        except SolanaRpcError as e:
+            print(f"[backstop] signature fetch failed for {label}: {e}")
+            continue
+        for sig_info in sigs or []:
+            sig = sig_info.get("signature") if isinstance(sig_info, dict) else sig_info
+            if not sig:
+                continue
+            seen_key = f"{sig}:{addr}"
+            with _lock:
+                already_seen = seen_key in _state["seen_keys"]
+            if already_seen:
+                continue
+            print(f"[backstop] catching missed signature for {label}: {sig}")
+            try:
+                handle_signature(label, addr, sig)
+            except Exception as e:
+                print(f"[backstop] error processing {sig} for {label}: {e}")
+    _last_backstop_run = datetime.now(timezone.utc).isoformat()
+
+
+def backstop_poll_loop():
+    while True:
+        time.sleep(BACKSTOP_POLL_INTERVAL_SEC)
+        try:
+            backstop_scan_once()
+        except Exception as e:
+            print(f"[backstop] loop error (will retry next cycle): {e}")
+
+
 def on_open(ws):
     print("[ws] Connected to Helius - subscribing to wallets...")
     _subscription_map.clear()
@@ -343,6 +385,7 @@ def health():
         "tracked_wallets": len(load_wallets()),
         "active_subscriptions": len(_subscription_map),
         "sol_usd_price": _sol_usd_price,
+        "last_backstop_scan": _last_backstop_run,
         "time": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -350,6 +393,7 @@ def health():
 if __name__ == "__main__":
     threading.Thread(target=sol_price_loop, daemon=True).start()
     threading.Thread(target=ws_loop, daemon=True).start()
+    threading.Thread(target=backstop_poll_loop, daemon=True).start()
     send_telegram("👛 Wallet watcher started (real-time mode).")
     port = int(os.environ.get("PORT", "8080"))
     app.run(host="0.0.0.0", port=port)
