@@ -329,6 +329,8 @@ def on_message(ws, message):
         data = json.loads(message)
     except json.JSONDecodeError:
         return
+       if "error" in data:
+        print("[ws] SERVER ERROR REPLY:", data)
 
     if "id" in data and "result" in data and data["id"] in _pending_subs:
         label, addr = _pending_subs.pop(data["id"])
