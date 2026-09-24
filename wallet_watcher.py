@@ -325,7 +325,6 @@ def on_open(ws):
 
 
 def on_message(ws, message):
-       print("[ws] RAW:", str(message)[:300])
        try:
         data = json.loads(message)
     except json.JSONDecodeError:
