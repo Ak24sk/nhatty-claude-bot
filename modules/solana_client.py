@@ -69,7 +69,7 @@ class SolanaClient:
         """Full parsed transaction details for a signature."""
         return self._call(
             "getTransaction",
-            [signature, {"maxSupportedTransactionVersion": 0, "encoding": "jsonParsed"}],
+            [signature, {"maxSupportedTransactionVersion": 1, "encoding": "jsonParsed"}],
         )
 
     def get_token_accounts_by_owner(self, owner_address: str):
