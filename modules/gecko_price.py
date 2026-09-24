@@ -135,14 +135,26 @@ def get_token_market_data(mint_address, network="solana"):
                 return 0.0
         best = max(pools, key=_liquidity)
         attrs = best.get("attributes", {})
-        result["price_usd"] = attrs.get("base_token_price_usd")
+
+        # FIX: the token we asked about can be the BASE or the QUOTE side of
+        # its best pool. For SOL, most pools are TOKEN/SOL, so SOL is the
+        # quote and base_token_price_usd is the price of the OTHER token.
+        rels = best.get("relationships", {}) or {}
+        base_id = (((rels.get("base_token") or {}).get("data")) or {}).get("id", "") or ""
+        is_base = (not base_id) or base_id.endswith(mint_address)
+
+        if is_base:
+            result["price_usd"] = attrs.get("base_token_price_usd")
+            result["market_cap_usd"] = attrs.get("market_cap_usd")
+            result["fdv_usd"] = attrs.get("fdv_usd")
+        else:
+            result["price_usd"] = attrs.get("quote_token_price_usd")
+
         result["liquidity_usd"] = attrs.get("reserve_in_usd")
-        result["market_cap_usd"] = attrs.get("market_cap_usd")
-        result["fdv_usd"] = attrs.get("fdv_usd")
         result["pool_created_at"] = attrs.get("pool_created_at")
         volume = attrs.get("volume_usd") or {}
         result["volume_24h_usd"] = volume.get("h24") if isinstance(volume, dict) else None
-        dex_data = best.get("relationships", {}).get("dex", {}).get("data", {})
+        dex_data = rels.get("dex", {}).get("data", {})
         result["dex"] = dex_data.get("id")
 
     info_url = f"{GECKO_BASE_URL}/networks/{network}/tokens/{mint_address}/info"
