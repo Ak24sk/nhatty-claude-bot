@@ -12,6 +12,8 @@ Standalone 24/7 worker (same pattern as graduation_watcher.py) that:
    unthrottled Helius RPC call) and classifies it:
      - BUY/SELL      if a real swap/AMM/aggregator program was involved
      - RECEIVED/SENT if it was a plain transfer (airdrop, claim, etc.)
+     - SWAP          if a swap happened but the SOL change was only fees
+                     (the wallet paid/received in USDC or another token)
    with SOL amount, USD value, and the token's live market cap.
 4. Separately tracks a rolling window of buy events and sell events, and
    fires a louder alert when 2+ followed wallets buy - or sell - the same
@@ -28,6 +30,8 @@ Optional:
     WALLETS_FILE            - default "watched_wallets.txt"
     STATE_FILE              - default "wallet_watcher_state.json"
     SOL_PRICE_REFRESH_SEC   - default 45
+    MIN_SOL_TRADE           - default 0.003 (SOL changes below this are
+                              treated as fees, not a real SOL trade)
 """
 
 import json
@@ -55,6 +59,7 @@ CONVERGENCE_MIN_WALLETS = int(os.environ.get("CONVERGENCE_MIN_WALLETS", "2"))
 SOL_PRICE_REFRESH_SEC = int(os.environ.get("SOL_PRICE_REFRESH_SEC", "45"))
 BACKSTOP_POLL_INTERVAL_SEC = int(os.environ.get("BACKSTOP_POLL_INTERVAL_SEC", "90"))
 BACKSTOP_SIGNATURES_PER_WALLET = int(os.environ.get("BACKSTOP_SIGNATURES_PER_WALLET", "15"))
+MIN_SOL_TRADE = float(os.environ.get("MIN_SOL_TRADE", "0.003"))
 
 WALLETS_FILE = os.environ.get("WALLETS_FILE", "watched_wallets.txt")
 STATE_FILE = os.environ.get("STATE_FILE", "wallet_watcher_state.json")
@@ -173,7 +178,12 @@ def send_telegram(message: str):
     try:
         requests.post(
             url,
-            json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"},
+            json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": message,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True,
+            },
             timeout=10,
         )
     except requests.RequestException as e:
@@ -254,6 +264,7 @@ def handle_signature(label, addr, sig):
         return
 
     wallet_display = f"{_escape_markdown(label)} ({addr[:4]}...{addr[-4:]})"
+    tx_link = f"[Solscan](https://solscan.io/tx/{sig})"
     block_time = tx.get("blockTime") or time.time()
     is_swap = bs.is_market_swap(tx)
 
@@ -261,51 +272,67 @@ def handle_signature(label, addr, sig):
         mint = buy["token_mint"]
         sol_amt = abs(buy["sol_delta"])
         token_amt = buy["token_delta"]
+        real_sol_trade = sol_amt >= MIN_SOL_TRADE
 
-        if is_swap:
+        if is_swap and real_sol_trade:
             price_per_token = (sol_amt / token_amt) if token_amt else None
             _mc_sol, mc_usd = estimate_market_cap(mint, price_per_token)
             usd_amt = sol_amt * _sol_usd_price if _sol_usd_price else None
             send_telegram(
                 f"🟢 *BUY* — {wallet_display}\n{_name_line(mint)}`{mint}`\n"
                 f"Spent ≈ {sol_amt:.4f} SOL ({_format_usd(usd_amt)})\n"
-                f"Market cap ≈ {_format_usd(mc_usd)}"
+                f"Market cap ≈ {_format_usd(mc_usd)}\n{tx_link}"
+            )
+        elif is_swap:
+            send_telegram(
+                f"🔄 *SWAP* — {wallet_display}\n{_name_line(mint)}`{mint}`\n"
+                f"Got {token_amt:,.2f} tokens, paid in another token "
+                f"(SOL change is only fees, so no price)\n{tx_link}"
             )
         else:
             send_telegram(
                 f"📥 *RECEIVED* — {wallet_display}\n{_name_line(mint)}`{mint}`\n"
-                f"{token_amt:,.2f} tokens (no swap detected - transfer/airdrop)"
+                f"{token_amt:,.2f} tokens (no swap detected - transfer/airdrop)\n{tx_link}"
             )
-        with _lock:
-            _state["buy_events"].append({
-                "wallet": wallet_display, "token_mint": mint,
-                "block_time": block_time, "signature": sig,
-            })
+        if (not is_swap) or real_sol_trade:
+            with _lock:
+                _state["buy_events"].append({
+                    "wallet": wallet_display, "token_mint": mint,
+                    "block_time": block_time, "signature": sig,
+                })
 
     for sell in bs.detect_sells_any_token(tx, addr):
         mint = sell["token_mint"]
         sol_amt = sell["sol_delta"]
         token_amt = abs(sell["token_delta"])
+        real_sol_trade = sol_amt >= MIN_SOL_TRADE
 
-        if is_swap:
+        if is_swap and real_sol_trade:
             price_per_token = (sol_amt / token_amt) if token_amt else None
             _mc_sol, mc_usd = estimate_market_cap(mint, price_per_token)
             usd_amt = sol_amt * _sol_usd_price if _sol_usd_price else None
             send_telegram(
                 f"🔴 *SELL* — {wallet_display}\n{_name_line(mint)}`{mint}`\n"
                 f"Received ≈ {sol_amt:.4f} SOL ({_format_usd(usd_amt)})\n"
-                f"Market cap ≈ {_format_usd(mc_usd)}"
+                f"Market cap ≈ {_format_usd(mc_usd)}\n{tx_link}"
+            )
+        elif is_swap:
+            send_telegram(
+                f"🔄 *SWAP* — {wallet_display}\n{_name_line(mint)}`{mint}`\n"
+                f"Gave up {token_amt:,.2f} tokens, received another token "
+                f"(SOL change is only fees, so no price)\n{tx_link}"
             )
         else:
             send_telegram(
                 f"📤 *SENT* — {wallet_display}\n{_name_line(mint)}`{mint}`\n"
-                f"{token_amt:,.2f} tokens (no swap detected - plain transfer)"
+                f"{token_amt:,.2f} tokens (no swap detected - plain transfer)\n{tx_link}"
             )
-        with _lock:
-            _state["sell_events"].append({
-                "wallet": wallet_display, "token_mint": mint,
-                "block_time": block_time, "signature": sig,
-            })
+        if (not is_swap) or real_sol_trade:
+            with _lock:
+                _state["sell_events"].append({
+                    "wallet": wallet_display, "token_mint": mint,
+                    "block_time": block_time, "signature": sig,
+                })
 
     with _lock:
         now = time.time()
