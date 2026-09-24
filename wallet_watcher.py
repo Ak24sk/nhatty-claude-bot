@@ -68,6 +68,9 @@ _subscription_map = {}  # subscription_id (int) -> (label, address)
 _pending_subs = {}      # request id (int) -> (label, address)
 _last_backstop_run = None  # ISO timestamp of the last backstop sweep, for /
 
+_name_cache = {}  # mint -> (label or None, time looked up)
+NAME_RETRY_SEC = 60  # retry a failed name lookup after this many seconds
+
 
 def load_wallets():
     if not os.path.exists(WALLETS_FILE):
@@ -114,6 +117,52 @@ def _escape_markdown(text: str) -> str:
     for ch in ("_", "*", "`", "["):
         text = text.replace(ch, "\\" + ch)
     return text
+
+
+def token_label(mint):
+    """Return 'SYMBOL (Name)' for a token mint via DexScreener (free, no key).
+    Cached; returns None if the token can't be found (very new / no pool)."""
+    cached = _name_cache.get(mint)
+    if cached:
+        label, looked_up = cached
+        if label or (time.time() - looked_up) < NAME_RETRY_SEC:
+            return label
+    label = None
+    try:
+        r = requests.get(
+            f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=6
+        )
+        if r.ok:
+            pairs = (r.json() or {}).get("pairs") or []
+            best = None
+            best_liq = -1.0
+            for p in pairs:
+                base = p.get("baseToken") or {}
+                if base.get("address") != mint:
+                    continue
+                liq = float((p.get("liquidity") or {}).get("usd") or 0)
+                if liq > best_liq:
+                    best, best_liq = base, liq
+            if best:
+                symbol = (best.get("symbol") or "").strip()
+                name = (best.get("name") or "").strip()
+                if symbol and name and symbol.lower() != name.lower():
+                    label = f"{symbol} ({name})"
+                else:
+                    label = symbol or name or None
+                if label and len(label) > 40:
+                    label = label[:40] + "..."
+    except Exception as e:
+        print(f"[name lookup] failed for {mint}: {e}")
+    _name_cache[mint] = (label, time.time())
+    return label
+
+
+def _name_line(mint):
+    label = token_label(mint)
+    if not label:
+        return ""
+    return f"*{_escape_markdown(label)}*\n"
 
 
 def send_telegram(message: str):
@@ -183,6 +232,7 @@ def check_convergence(events, direction_label, emoji):
         _alerted_clusters.add(key)
         send_telegram(
             f"{emoji} *{c['wallet_count']} wallets {direction_label} the same token* {emoji}\n"
+            f"{_name_line(c['token_mint'])}"
             f"`{c['token_mint']}`\n"
             f"Wallets: {', '.join(c['wallets'])}"
         )
@@ -217,13 +267,13 @@ def handle_signature(label, addr, sig):
             _mc_sol, mc_usd = estimate_market_cap(mint, price_per_token)
             usd_amt = sol_amt * _sol_usd_price if _sol_usd_price else None
             send_telegram(
-                f"🟢 *BUY* — {wallet_display}\n`{mint}`\n"
+                f"🟢 *BUY* — {wallet_display}\n{_name_line(mint)}`{mint}`\n"
                 f"Spent ≈ {sol_amt:.4f} SOL ({_format_usd(usd_amt)})\n"
                 f"Market cap ≈ {_format_usd(mc_usd)}"
             )
         else:
             send_telegram(
-                f"📥 *RECEIVED* — {wallet_display}\n`{mint}`\n"
+                f"📥 *RECEIVED* — {wallet_display}\n{_name_line(mint)}`{mint}`\n"
                 f"{token_amt:,.2f} tokens (no swap detected - transfer/airdrop)"
             )
         with _lock:
@@ -242,13 +292,13 @@ def handle_signature(label, addr, sig):
             _mc_sol, mc_usd = estimate_market_cap(mint, price_per_token)
             usd_amt = sol_amt * _sol_usd_price if _sol_usd_price else None
             send_telegram(
-                f"🔴 *SELL* — {wallet_display}\n`{mint}`\n"
+                f"🔴 *SELL* — {wallet_display}\n{_name_line(mint)}`{mint}`\n"
                 f"Received ≈ {sol_amt:.4f} SOL ({_format_usd(usd_amt)})\n"
                 f"Market cap ≈ {_format_usd(mc_usd)}"
             )
         else:
             send_telegram(
-                f"📤 *SENT* — {wallet_display}\n`{mint}`\n"
+                f"📤 *SENT* — {wallet_display}\n{_name_line(mint)}`{mint}`\n"
                 f"{token_amt:,.2f} tokens (no swap detected - plain transfer)"
             )
         with _lock:
@@ -329,6 +379,7 @@ def on_message(ws, message):
         data = json.loads(message)
     except json.JSONDecodeError:
         return
+
     if "id" in data and "result" in data and data["id"] in _pending_subs:
         label, addr = _pending_subs.pop(data["id"])
         _subscription_map[data["result"]] = (label, addr)
